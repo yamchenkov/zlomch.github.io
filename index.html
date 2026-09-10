@@ -1,127 +1,35 @@
 <!doctype html>
-<html lang="ru">
-<head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Проверка чтения буфера обмена</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Web K clipboard interaction-TTL PoC</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-  body { margin: 0; padding: 16px; font: 15px/1.5 -apple-system, system-ui, sans-serif;
-         background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #000); }
-  h1 { font-size: 17px; margin: 0 0 4px; }
-  .sub { color: var(--tg-theme-hint-color, #777); font-size: 13px; margin-bottom: 14px; }
-  .row { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: baseline;
-         border: 1px solid var(--tg-theme-hint-color, #ccc); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
-  .row div:nth-child(even) { font-weight: 600; text-align: right; }
-  #countdown { font-variant-numeric: tabular-nums; }
-  button { width: 100%; padding: 12px; margin: 6px 0; font-size: 15px; border-radius: 10px;
-           border: 0; background: var(--tg-theme-button-color, #2f81f7); color: var(--tg-theme-button-text-color, #fff); }
-  button.secondary { background: transparent; color: var(--tg-theme-button-color, #2f81f7);
-                     border: 1px solid var(--tg-theme-button-color, #2f81f7); }
-  #verdict { border-radius: 10px; padding: 12px; margin: 12px 0; font-size: 14px; display: none; }
-  #verdict.show { display: block; }
-  #verdict.problem { background: #fdecec; color: #8a1f1f; }
-  #verdict.ok { background: #eaf6ee; color: #1a5c33; }
-  #log { white-space: pre-wrap; word-break: break-word; font: 12px/1.45 ui-monospace, Menlo, monospace;
-         background: var(--tg-theme-secondary-bg-color, #f3f3f3); border-radius: 10px; padding: 10px; margin-top: 12px; }
+  body { font: 16px system-ui; margin: 2rem; }
+  button { font: inherit; padding: .7rem 1rem; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>
-</head>
-<body>
-<h1>Проверка чтения буфера обмена</h1>
-<div class="sub">По договору мини-приложение может читать буфер только в течение
-десяти секунд после нажатия внутри него. Проверяем, соблюдается ли это.</div>
-
-<div class="row">
-  <div>Нажатий в этом сеансе</div><div id="clicks">0</div>
-  <div>Автозапрос без нажатия через</div><div id="countdown">—</div>
-</div>
-
-<div id="verdict"></div>
-
-<button id="btn-mark">1. Записать метку в буфер</button>
-<button id="btn-read" class="secondary">2. Прочитать с нажатием (выдать разрешение)</button>
-<button id="btn-copy" class="secondary">Скопировать журнал</button>
-
-<div id="log"></div>
-
+<h1>Clipboard interaction-TTL PoC</h1>
+<p id="status">Automatic read scheduled for 12 seconds after page load.</p>
+<button id="grant" type="button">Grant clipboard permission with this interaction</button>
+<pre id="result">No callback yet.</pre>
 <script>
-(function () {
-  var tg = window.Telegram && window.Telegram.WebApp;
-  var log = document.getElementById('log');
-  var lines = [];
-  var clicks = 0;
-  var marker = '';
-  var DELAY = 12000;
+  const status = document.querySelector('#status');
+  const result = document.querySelector('#result');
 
-  function say(text) {
-    lines.push(new Date().toISOString().slice(11, 23) + '  ' + text);
-    log.textContent = lines.join('\n');
-  }
-
-  if (!tg) { say('Открыто вне Telegram — моста нет. Запускать из чата с ботом.'); return; }
-  tg.ready();
-  tg.expand();
-  say('WebApp ' + tg.version + ', платформа ' + tg.platform);
-
-  if (!tg.isVersionAtLeast || !tg.isVersionAtLeast('6.4')) {
-    say('readTextFromClipboard недоступен: клиент сообщает ' + tg.version + ', нужен 6.4 и новее.');
-    say('Вне Telegram всегда показывается 6.0 — открывать из чата с ботом.');
-    return;
-  }
-
-  function verdict(kind, text) {
-    var box = document.getElementById('verdict');
-    box.className = 'show ' + kind;
-    box.textContent = text;
-  }
-
-  function read(label, interactive) {
-    say('запрос буфера: ' + label);
-    tg.readTextFromClipboard(function (text) {
-      var empty = text === null || text === undefined || text === '';
-      say(label + ' -> ' + (empty ? '[данных нет]' : JSON.stringify(text)));
-      if (interactive) return;
-      // Автоматический запрос сделан позже десяти секунд и без нажатия.
-      // По договору данных прийти не должно.
-      if (!empty) {
-        verdict('problem', 'Буфер прочитан без нажатия, через ' + (DELAY / 1000)
-          + ' секунд после загрузки' + (clicks === 0 ? ', и в этом сеансе вы вообще ничего не нажимали' : '')
-          + '. Десятисекундное окно не соблюдается.'
-          + (marker && text.indexOf(marker) >= 0 ? ' Пришла именно наша метка.' : ''));
-      } else {
-        verdict('ok', 'Данных нет — окно соблюдается, поведение правильное.');
-      }
+  function requestClipboard(label) {
+    Telegram.WebApp.readTextFromClipboard((text) => {
+      result.textContent = `${label}: ${text === null || text === undefined ? '[no data]' : text}`;
     });
   }
 
-  document.getElementById('btn-mark').onclick = function () {
-    clicks++; document.getElementById('clicks').textContent = clicks;
-    marker = 'TSO-CLIP-' + Math.random().toString(36).slice(2, 8).toUpperCase();
-    navigator.clipboard.writeText(marker).then(function () {
-      say('в буфер записана метка ' + marker);
-    }, function (error) {
-      say('записать метку не вышло: ' + error + '. Скопируйте что-нибудь вручную.');
-    });
-  };
+  document.querySelector('#grant').addEventListener('click', () => {
+    requestClipboard('interactive request');
+  });
 
-  document.getElementById('btn-read').onclick = function () {
-    clicks++; document.getElementById('clicks').textContent = clicks;
-    read('с нажатием', true);
-  };
+  setTimeout(() => {
+    status.textContent = 'Automatic interaction-free request sent after 12 seconds.';
+    requestClipboard('automatic request');
+  }, 12000);
 
-  document.getElementById('btn-copy').onclick = function () {
-    navigator.clipboard && navigator.clipboard.writeText(lines.join('\n'));
-    say('журнал скопирован');
-  };
-
-  var left = DELAY / 1000;
-  document.getElementById('countdown').textContent = left + ' с';
-  var timer = setInterval(function () {
-    left--;
-    document.getElementById('countdown').textContent = left > 0 ? left + ' с' : 'отправлен';
-    if (left <= 0) { clearInterval(timer); read('без нажатия', false); }
-  }, 1000);
-})();
+  Telegram.WebApp.ready();
 </script>
-</body>
-</html>
