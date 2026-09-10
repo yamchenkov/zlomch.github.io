@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Проверка геолокации бота</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  body { margin: 0; padding: 16px; font: 15px/1.5 -apple-system, system-ui, sans-serif;
+         background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #000); }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  .sub { color: var(--tg-theme-hint-color, #777); font-size: 13px; margin-bottom: 16px; }
+  .flags { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px;
+           border: 1px solid var(--tg-theme-hint-color, #ccc); border-radius: 10px; padding: 12px; margin-bottom: 14px; }
+  .flags div:nth-child(even) { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+  .yes { color: #1a9e4b; } .no { color: #999; } .bad { color: #d13b3b; }
+  button { width: 100%; padding: 12px; margin: 6px 0; font-size: 15px; border-radius: 10px;
+           border: 0; background: var(--tg-theme-button-color, #2f81f7); color: var(--tg-theme-button-text-color, #fff); }
+  button.secondary { background: transparent; color: var(--tg-theme-button-color, #2f81f7);
+                     border: 1px solid var(--tg-theme-button-color, #2f81f7); }
+  #verdict { border-radius: 10px; padding: 12px; margin: 12px 0; font-size: 14px; display: none; }
+  #verdict.show { display: block; }
+  #verdict.problem { background: #fdecec; color: #8a1f1f; }
+  #verdict.ok { background: #eaf6ee; color: #1a5c33; }
+  #log { white-space: pre-wrap; word-break: break-word; font: 12px/1.45 ui-monospace, Menlo, monospace;
+         background: var(--tg-theme-secondary-bg-color, #f3f3f3); border-radius: 10px; padding: 10px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<h1>Проверка геолокации бота</h1>
+<div class="sub">Карточка 1084. Смотрим, сохраняет ли Telegram разрешение боту
+после отказа в системном окне Android.</div>
+
+<div class="flags">
+  <div>isInited</div><div id="f-inited">—</div>
+  <div>isLocationAvailable</div><div id="f-available">—</div>
+  <div>isAccessRequested</div><div id="f-requested">—</div>
+  <div>isAccessGranted</div><div id="f-granted">—</div>
+</div>
+
+<div id="verdict"></div>
+
+<button id="btn-request">Запросить геолокацию</button>
+<button id="btn-refresh" class="secondary">Обновить флаги</button>
+<button id="btn-settings" class="secondary">Настройки доступа бота</button>
+<button id="btn-copy" class="secondary">Скопировать журнал</button>
+
+<div id="log"></div>
+
+<script>
+(function () {
+  var tg = window.Telegram && window.Telegram.WebApp;
+  var log = document.getElementById('log');
+  var lines = [];
+
+  function say(text) {
+    var stamp = new Date().toISOString().slice(11, 23);
+    lines.push(stamp + '  ' + text);
+    log.textContent = lines.join('\n');
+  }
+
+  if (!tg) {
+    say('Открыто вне Telegram — мост недоступен. Запускать из чата с ботом.');
+    return;
+  }
+  tg.ready();
+  tg.expand();
+  say('WebApp ' + tg.version + ', платформа ' + tg.platform);
+
+  var lm = tg.LocationManager;
+  // Мост существует и в старых версиях, но молча ничего не делает: init не
+  // вызывает обратный вызов, и страница замирает без объяснения.
+  if (!lm || !tg.isVersionAtLeast || !tg.isVersionAtLeast('8.0')) {
+    say('LocationManager недоступен: клиент сообщает версию ' + tg.version
+        + ', а нужен Bot API 8.0 и новее.');
+    say('Вне Telegram страница всегда показывает 6.0 — открывать из чата с ботом.');
+    return;
+  }
+
+  function mark(id, value, dangerWhenTrue) {
+    var el = document.getElementById(id);
+    el.textContent = value === undefined ? '—' : String(value);
+    el.className = value === true ? (dangerWhenTrue ? 'bad' : 'yes') : 'no';
+  }
+
+  // Тот самый признак: система отказала, а Telegram считает доступ выданным.
+  function refresh() {
+    mark('f-inited', lm.isInited);
+    mark('f-available', lm.isLocationAvailable);
+    mark('f-requested', lm.isAccessRequested);
+    mark('f-granted', lm.isAccessGranted);
+    var box = document.getElementById('verdict');
+    if (lm.isAccessRequested && lm.isAccessGranted === true) {
+      box.className = 'show problem';
+      box.textContent = 'Telegram считает, что доступ боту выдан. Если в системном '
+        + 'окне Android вы нажали «Запретить» — это и есть проверяемое поведение: '
+        + 'отказ сохранён как согласие.';
+    } else if (lm.isAccessRequested && lm.isAccessGranted === false) {
+      box.className = 'show ok';
+      box.textContent = 'Доступ боту не выдан — состояние согласуется с отказом.';
+    } else {
+      box.className = '';
+    }
+    say('флаги: inited=' + lm.isInited + ' available=' + lm.isLocationAvailable
+        + ' requested=' + lm.isAccessRequested + ' granted=' + lm.isAccessGranted);
+  }
+
+  var inited = false;
+  lm.init(function () {
+    inited = true;
+    say('init завершён');
+    refresh();
+  });
+  setTimeout(function () {
+    if (!inited) {
+      say('init не ответил за 3 секунды. Обычно это значит, что клиент не '
+          + 'поддерживает геолокацию для мини-приложений или окно открыто не в Telegram.');
+    }
+  }, 3000);
+
+  document.getElementById('btn-request').onclick = function () {
+    say('вызываю getLocation');
+    lm.getLocation(function (location) {
+      if (location) {
+        say('КООРДИНАТЫ ПОЛУЧЕНЫ: ' + location.latitude.toFixed(5)
+            + ', ' + location.longitude.toFixed(5));
+      } else {
+        say('координат нет: getLocation вернул null');
+      }
+      refresh();
+    });
+  };
+  document.getElementById('btn-refresh').onclick = refresh;
+  document.getElementById('btn-settings').onclick = function () {
+    say('открываю настройки доступа');
+    lm.openSettings();
+  };
+  document.getElementById('btn-copy').onclick = function () {
+    var text = lines.join('\n');
+    navigator.clipboard && navigator.clipboard.writeText(text);
+    say('журнал скопирован');
+  };
+})();
+</script>
+</body>
+</html>
