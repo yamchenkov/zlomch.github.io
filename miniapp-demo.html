@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<!-- TG-15 macOS validation kit — Mini App MAIN FRAME page (origin A).
+     Host this file on an HTTPS origin you control and set it as your own
+     test bot's Mini App URL (BotFather -> /mybots -> Bot Settings ->
+     Menu Button). Then open the bot's Mini App in Telegram for macOS.
+
+     IMPORTANT: this page contains NO bridge shim. In the reviewed
+     TelegramSwift source the client itself injects TelegramWebviewProxy
+     into EVERY frame of the Mini App web view (WebpageModalController.swift
+     L1183, forMainFrameOnly: false) — that injection is what this kit
+     validates on the shipped binary.
+
+     The page behaves like a normal Mini App: it stores a private session
+     token in the bot's secure storage (the intended use of the API) and
+     re-reads it every 3 s, displaying what it receives. It embeds a
+     third-party "ad" iframe that must be hosted on a DIFFERENT origin.
+-->
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TG-15 kit — Demo Wallet Mini App</title>
+<style>
+ body{font-family:-apple-system,Menlo,monospace;margin:0;background:#1b1f24;color:#d8dee6;font-size:13px}
+ .banner{background:#274156;padding:6px 10px;font-weight:bold;color:#fff}
+ .wrap{display:flex;gap:10px;padding:10px;align-items:flex-start}
+ .col{flex:1;min-width:0}
+ .panel{background:#22272e;border:1px solid #444;border-radius:6px;padding:10px;margin-bottom:10px}
+ .panel h3{margin:0 0 8px;font-size:13px;color:#8ab4f8}
+ pre{white-space:pre-wrap;margin:4px 0;word-break:break-all}
+ .dim{color:#8b949e}
+ .poisoned{color:#ff6b6b;font-weight:bold}
+ button{font:inherit;padding:8px 18px;border-radius:6px;border:0;background:#238636;color:#fff;font-weight:bold;cursor:pointer}
+ iframe{width:100%;height:330px;border:2px dashed #666;background:#fff}
+ #tokencur{font-weight:bold}
+</style></head>
+<body>
+<div class="banner">TG-15 validation kit — Demo Wallet Mini App (main frame, origin A: <span id="myorigin"></span>)</div>
+<div class="wrap">
+ <div class="col">
+  <div class="panel">
+   <h3>Demo Wallet Mini App — the bot's own page</h3>
+   <pre id="app-status">initializing…</pre>
+   <pre class="dim">On load this app stores its private session token in the bot's
+Keychain-backed secure storage (web_app_secure_storage_save_key) — the
+intended use of that API. It re-reads the token every 3 s and trusts
+whatever comes back.</pre>
+   <button id="balance">Check balance</button>
+   <pre class="dim">(a completely ordinary button — clicking anywhere in the window once
+also counts as a normal user gesture for later steps)</pre>
+  </div>
+  <div class="panel">
+   <h3>Events received by the MAIN frame — window.TelegramGameProxy.receiveEvent
+(sendEvent → evaluateJavaScript delivers bridge responses HERE)</h3>
+   <pre id="main-events">(none yet)</pre>
+  </div>
+ </div>
+ <div class="col">
+  <div class="panel">
+   <h3>Third-party "ad" iframe — origin B (different origin, not trusted by the bot or Telegram)</h3>
+   <!-- REPLACE THIS SRC WITH YOUR ORIGIN-B COPY OF adframe-demo.html -->
+   <iframe id="adframe" src="https://macbook-pro-nick.tail139d6c.ts.net/adframe-demo.html"></iframe>
+  </div>
+ </div>
+</div>
+<script>
+// The macOS client delivers bridge response events by evaluating
+// window.TelegramGameProxy.receiveEvent(name, data) in the MAIN frame
+// (WebpageModalController.swift L2864). Define it early:
+window.TelegramGameProxy = { receiveEvent: function(name, data){
+  var log = document.getElementById('main-events');
+  log.textContent = name + ' ' + (data == null ? '' : data) + "\n" + log.textContent;
+  try {
+    var d = typeof data === 'string' ? JSON.parse(data) : (data || {});
+    if (name === 'secure_storage_key_received' && d.key === 'app_session_token') {
+      var cur = document.getElementById('tokencur');
+      cur.textContent = String(d.value);
+      cur.className = (String(d.value).indexOf('ATTACKER-POISONED') >= 0) ? 'poisoned' : '';
+    }
+  } catch(e) {}
+}};
+
+document.getElementById('myorigin').textContent = location.origin;
+document.getElementById('balance').addEventListener('click', function(){
+  document.getElementById('app-status').textContent = 'balance check: token is "private", trust it — nothing suspicious here';
+});
+
+function call(eventName, obj){
+  // TelegramWebviewProxy is injected by the Telegram macOS client itself.
+  if (typeof TelegramWebviewProxy === 'undefined') {
+    document.getElementById('app-status').textContent =
+      'TelegramWebviewProxy NOT available — this page is not running inside a Telegram Mini App web view (or the client did not inject it).';
+    return false;
+  }
+  TelegramWebviewProxy.postEvent(eventName, JSON.stringify(obj));
+  return true;
+}
+
+var n = 0;
+setTimeout(function(){
+  if (!call('web_app_secure_storage_save_key',
+            {req_id:'app-save-1', key:'app_session_token', value:'TG15-DEMO-SECRET-token-9f3a'})) return;
+  document.getElementById('app-status').innerHTML =
+    'private session token saved (app_session_token = TG15-DEMO-SECRET-token-9f3a)\n' +
+    'current trusted value: <span id="tokencur">TG15-DEMO-SECRET-token-9f3a</span>';
+}, 700);
+
+setInterval(function(){
+  n++;
+  call('web_app_secure_storage_get_key', {req_id:'app-read-'+n, key:'app_session_token'});
+}, 3000);
+</script>
+</body></html>
