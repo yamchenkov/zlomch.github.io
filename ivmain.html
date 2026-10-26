@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>IV Main</title></head>
+<body style="font-family:monospace">
+<h3>MAIN FRAME (pinned origin)</h3>
+<button id="btn" style="font-size:18px;padding:10px 20px">CLICK ME (main frame gesture)</button>
+<pre id="out" style="font-size:10px;white-space:pre-wrap"></pre>
+<h4>sanboxed iframe below (opaque origin)</h4>
+<iframe id="f" sandbox="allow-scripts" style="width:420px;height:260px;border:2px solid #960"></iframe>
+<script>
+(function() {
+  var params = new URLSearchParams(location.search);
+  var rid = params.get('rid') || 'ivm';
+  var out = document.getElementById('out');
+
+  // Единственное отличие от страницы автора: он слал каждую строку на свой
+  // сервер, здесь строки остаются на экране.
+  function report(obj) {
+    obj.rid = rid; obj.t = Date.now();
+    if (out) out.textContent += JSON.stringify(obj) + '\n';
+  }
+
+  report({phase: 'ivm_load', href: location.href});
+
+  var inv = {phase: 'ivm_inventory'};
+  try { inv.proxyTypeof = typeof TelegramWebviewProxy; } catch (e) { inv.proxyTypeof = 'ERR:' + e; }
+  try { inv.hasTelegram = typeof window.Telegram !== 'undefined'; } catch (e) {}
+  report(inv);
+
+  var events = [];
+  if (!window.TelegramGameProxy) window.TelegramGameProxy = {};
+  var orig = window.TelegramGameProxy.receiveEvent;
+  window.TelegramGameProxy.receiveEvent = function(event, data) {
+    events.push(event);
+    report({phase: 'IVM_RECEIVE_EVENT', event: event, data: typeof data === 'object' ? JSON.stringify(data) : String(data)});
+    if (typeof orig === 'function') { try { orig(event, data); } catch (e) {} }
+  };
+
+  function fire(action, payload, tag) {
+    try {
+      if (typeof TelegramWebviewProxy !== 'undefined' && TelegramWebviewProxy.postEvent) {
+        TelegramWebviewProxy.postEvent(action, payload);
+        report({phase: 'ivm_sent_' + tag, action: action});
+      } else {
+        window.webkit.messageHandlers.performAction.postMessage({eventName: action, eventData: payload});
+        report({phase: 'ivm_sent_' + tag, action: action, via: 'raw_handler'});
+      }
+    } catch (e) { report({phase: 'ivm_send_err_' + tag, err: String(e)}); }
+  }
+
+  // main frame, NO gesture on this page: окно уже открыто нажатием на
+  // предыдущей странице
+  setTimeout(function() { fire('web_app_read_text_from_clipboard', JSON.stringify({req_id: rid + '-auto'}), 'auto'); }, 1200);
+
+  // main frame, WITH gesture
+  document.getElementById('btn').addEventListener('click', function() {
+    report({phase: 'ivm_click'});
+    fire('web_app_read_text_from_clipboard', JSON.stringify({req_id: rid + '-click'}), 'click');
+  });
+
+  // load sandboxed iframe (opaque origin)
+  document.getElementById('f').src = 'ivframe.html?rid=' + rid + '-sbx';
+
+  setTimeout(function() { report({phase: 'ivm_final', events: events.join(',')}); }, 12000);
+})();
+</script>
+</body>
+</html>

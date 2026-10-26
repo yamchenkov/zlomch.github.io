@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>IV Frame</title></head>
+<body style="background:#ffd;border:1px solid #960;padding:6px;font-family:monospace">
+<h4>IFRAME (sandboxed - opaque origin)</h4>
+<button id="btn" style="font-size:18px;padding:10px 20px">CLICK ME (iframe gesture)</button>
+<pre id="out" style="font-size:10px;white-space:pre-wrap"></pre>
+<script>
+(function() {
+  var params = new URLSearchParams(location.search);
+  var rid = params.get('rid') || 'ivf';
+  var out = document.getElementById('out');
+
+  function report(obj) {
+    obj.rid = rid; obj.t = Date.now();
+    try { obj.origin = location.origin; } catch (e) { obj.origin = 'ERR'; }
+    if (out) out.textContent += JSON.stringify(obj) + '\n';
+  }
+
+  report({phase: 'ivf_load'});
+
+  var inv = {phase: 'ivf_inventory'};
+  try { inv.proxyTypeof = typeof TelegramWebviewProxy; } catch (e) { inv.proxyTypeof = 'ERR:' + e; }
+  try { inv.handlers = Object.keys(window.webkit.messageHandlers).join(','); } catch (e) { inv.handlers = 'ERR:' + e; }
+  report(inv);
+
+  var events = [];
+  if (!window.TelegramGameProxy) window.TelegramGameProxy = {};
+  var orig = window.TelegramGameProxy.receiveEvent;
+  window.TelegramGameProxy.receiveEvent = function(event, data) {
+    events.push(event);
+    report({phase: 'IVF_RECEIVE_EVENT', event: event, data: typeof data === 'object' ? JSON.stringify(data) : String(data)});
+    if (typeof orig === 'function') { try { orig(event, data); } catch (e) {} }
+  };
+
+  function fire(action, payload, tag) {
+    try {
+      if (typeof TelegramWebviewProxy !== 'undefined' && TelegramWebviewProxy.postEvent) {
+        TelegramWebviewProxy.postEvent(action, payload);
+        report({phase: 'ivf_sent_' + tag, action: action, via: 'TelegramWebviewProxy'});
+      } else {
+        window.webkit.messageHandlers.performAction.postMessage({eventName: action, eventData: payload});
+        report({phase: 'ivf_sent_' + tag, action: action, via: 'raw_handler'});
+      }
+    } catch (e) { report({phase: 'ivf_send_err_' + tag, err: String(e)}); }
+  }
+
+  setTimeout(function() { fire('web_app_read_text_from_clipboard', JSON.stringify({req_id: rid + '-auto'}), 'auto'); }, 700);
+
+  document.getElementById('btn').addEventListener('click', function() {
+    report({phase: 'ivf_click'});
+    fire('web_app_read_text_from_clipboard', JSON.stringify({req_id: rid + '-click'}), 'click');
+  });
+
+  setTimeout(function() { report({phase: 'ivf_final', events: events.join(',')}); }, 10000);
+})();
+</script>
+</body>
+</html>

