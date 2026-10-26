@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Проверка чтения буфера обмена</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.45 -apple-system, system-ui, sans-serif; margin: 0; padding: 16px;
+         background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #111); }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  .muted { color: var(--tg-theme-hint-color, #777); font-size: 13px; }
+  button { font: inherit; padding: 10px 14px; margin: 4px 4px 4px 0; border-radius: 10px;
+           border: 1px solid var(--tg-theme-hint-color, #bbb); cursor: pointer;
+           background: var(--tg-theme-secondary-bg-color, #f2f2f2);
+           color: var(--tg-theme-text-color, #111); }
+  button:disabled { opacity: .5; cursor: default; }
+  #log { margin-top: 12px; border-top: 1px solid var(--tg-theme-hint-color, #ddd); padding-top: 8px; }
+  .row { padding: 6px 0; border-bottom: 1px dashed var(--tg-theme-hint-color, #e5e5e5); }
+  .ok { color: #157f3b; } .no { color: #b3261e; }
+  code { background: rgba(127,127,127,.15); padding: 1px 5px; border-radius: 5px; word-break: break-all; }
+</style>
+</head>
+<body>
+<h1>Чтение буфера обмена из мини-приложения</h1>
+<div class="muted" id="env">—</div>
+
+<p class="muted">Страница ничего никуда не отправляет: прочитанное показывается
+только здесь, на экране. Сетевых запросов у неё нет вовсе.</p>
+
+<div>
+  <button id="now">Прочитать сейчас</button>
+  <button id="again">Прочитать ещё раз, не нажимая внутри</button>
+</div>
+<div>
+  <button data-delay="3">Через 3 с</button>
+  <button data-delay="8">Через 8 с</button>
+  <button data-delay="15">Через 15 с</button>
+  <button data-delay="25">Через 25 с</button>
+</div>
+<p class="muted">Проверка из репорта: нажми «Через 8 с», сразу переключись в другое
+приложение и скопируй там любой текст. Если в журнале появится этот текст, значит
+мини-приложение прочитало буфер, пока окно Telegram неактивно.</p>
+
+<div id="log"></div>
+
+<script>
+(function () {
+  var tg = window.Telegram && window.Telegram.WebApp;
+  var log = document.getElementById('log');
+  var started = Date.now();
+
+  if (tg) { tg.ready(); tg.expand(); }
+  document.getElementById('env').textContent = tg
+    ? 'Платформа: ' + tg.platform + ' · версия Bot API: ' + tg.version
+      + ' · метод readTextFromClipboard: ' + (typeof tg.readTextFromClipboard === 'function' ? 'есть' : 'нет')
+    : 'Открыто не как мини-приложение Telegram.';
+
+  function add(html, cls) {
+    var row = document.createElement('div');
+    row.className = 'row ' + (cls || '');
+    var since = ((Date.now() - started) / 1000).toFixed(1);
+    row.innerHTML = '<span class="muted">+' + since + ' с · фокус окна: '
+      + (document.hasFocus() ? 'есть' : '<b>нет</b>') + '</span><br>' + html;
+    log.insertBefore(row, log.firstChild);
+  }
+
+  function read(label) {
+    if (!tg || typeof tg.readTextFromClipboard !== 'function') {
+      return add(label + ': метода нет — клиент не даёт читать буфер', 'no');
+    }
+    // Ответ приходит обратным вызовом. null значит, что клиент отказал:
+    // либо мини-приложение открыто не из меню вложений, либо истекло окно
+    // после последнего нажатия внутри.
+    tg.readTextFromClipboard(function (text) {
+      if (text === null || text === undefined) {
+        add(label + ': клиент отказал, вернулся <code>null</code>', 'no');
+      } else if (text === '') {
+        add(label + ': прочитано, но буфер пуст', 'ok');
+      } else {
+        add(label + ': прочитано <code>' + text.replace(/[<>&]/g, function (c) {
+          return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+        }) + '</code>', 'ok');
+      }
+    });
+  }
+
+  document.getElementById('now').onclick = function () { read('сразу после нажатия'); };
+  document.getElementById('again').onclick = function () { read('повторное чтение'); };
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-delay]'), function (btn) {
+    btn.onclick = function () {
+      var delay = Number(btn.dataset.delay);
+      add('запрошено чтение через ' + delay + ' с — переключайся и копируй');
+      setTimeout(function () { read('отложенное на ' + delay + ' с'); }, delay * 1000);
+    };
+  });
+})();
+</script>
+</body>
+</html>
